@@ -1,0 +1,1426 @@
+<!--
+
+RL Viz, visualizations for rocket league replay analysis
+Author: Thomas Crowell, April 2017
+
+-->
+<!DOCTYPE HTML>
+<html>
+	<head>
+		<title>RL Viz</title>
+		<meta charset="utf-8">
+		<link rel="stylesheet" type="text/css" href="RLStyle.css"/>
+		<script type="text/javascript" src="./d3.js"></script>
+		<script type="text/javascript" src="./d3-hexbin.v0.2.min.js"></script>
+		
+		
+	</head>
+	<body background="./Images/Background1.jpg">
+		<script type="text/javascript"></script>
+		<div id=headerContainer>
+			<div id=menu>
+				<ul>
+					<li><h1>Welcome to RL Viz</h1></li>
+					<li><a href="./">Home</a></li>
+					<li><a href="./About.html">About</a></li>
+					<li><a href="https://www.rocketleague.com/">Rocket League</a></li>
+				</ul>
+			</div>
+			<br>
+		</div>
+		<div id="InputContainer">
+			<div id="localInputContainer">
+				<form action="/ReadRLVizInputLocal" method="post" enctype="multipart/form-data">
+					Enter a replay to analyze:<input type="file" id ="RLReplayLocalInput" name="RLReplayLocalFile"/><br>
+					<br>
+					<input name="commitLocal" type="submit" value="Submit"/>
+					<br><br>
+				</form>
+			</div>
+
+			<div id="URLInputContainer">
+				<form action="/ReadRLVizInputURL" method="post" enctype="multipart/form-data">
+					Or enter a url linking to a replay file:<input type="text" id ="RLReplayURLInput" name="RLReplayURLFile"/><br>
+					<br>
+					<input name="commitURL" type="submit" value="Submit"/>
+				</form>
+			</div>
+			<div id="AlreadyReadContainer">
+				<text id="AlreadyRead"></text>
+			</div>
+		</div>
+		<div id=contentContainer>
+			<ul id=contentMenu>
+				<li id="GameStatsButton"><p>Game Stats</p></li>
+				<li id="PlayerStatsButton"><p>Player Stats</p></li>
+				<li id="ShotStatsButton"><p>Shot Charts</p></li>
+				<li id="MovementButton"><p>Field Movement</p></li>
+			</ul>
+		</div>
+		<div id=timelineContainer>
+		</div>
+			
+		<script src="/socket.io/socket.io.js"></script>
+		<script type="text/javascript">
+			//Keep track if any data has been read in
+			var dataRead = 0;
+			var data;
+			
+			//Define a socket for recieving the data from the server
+			var socket = io.connect('http://localhost:8888');
+			socket.on('dataReady', function(dataDisplay) {
+				if(dataRead == 0){
+					console.log('Data ready, reading data');
+					
+					data = JSON.parse('[' + dataDisplay + ']');
+					console.log('data read');
+					dataRead = 1;
+					
+					createVisualizations(); //Create all the visualizations
+				}
+				else{
+					alreadyRead(); //If data has already been read in, let the user know
+				}
+			});
+
+			
+			//Onclick functions for switching views on the main content menu
+			document.getElementById("GameStatsButton").onclick = function(){
+				d3.selectAll(".gameStatsScreen").transition().duration(1000).style("opacity", 1).attr("visibility", "visible");
+				d3.selectAll(".playerStatsScreen").transition().duration(1000).style("opacity", 0).attr("visibility", "hidden");
+				d3.selectAll(".shotChartScreen").transition().duration(1000).style("opacity", 0).attr("visibility", "hidden");
+				d3.selectAll(".movementScreen").transition().duration(1000).style("opacity", 0).attr("visibility", "hidden");
+				
+			};
+																
+			document.getElementById("PlayerStatsButton").onclick = function(){
+				d3.selectAll(".gameStatsScreen").transition().duration(1000).style("opacity", 0).attr("visibility", "hidden");
+				d3.selectAll(".playerStatsScreen").transition().duration(1000).style("opacity", 1).attr("visibility", "visible");
+				d3.selectAll(".shotChartScreen").transition().duration(1000).style("opacity", 0).attr("visibility", "hidden");
+				d3.selectAll(".movementScreen").transition().duration(1000).style("opacity", 0).attr("visibility", "hidden");
+			};
+				
+			document.getElementById("ShotStatsButton").onclick = function(){
+				d3.selectAll(".gameStatsScreen").transition().duration(1000).style("opacity", 0).attr("visibility", "hidden");
+				d3.selectAll(".playerStatsScreen").transition().duration(1000).style("opacity", 0).attr("visibility", "hidden");
+				d3.selectAll(".shotChartScreen").transition().duration(1000).style("opacity", 1).attr("visibility", "visible");
+				d3.selectAll(".movementScreen").transition().duration(1000).style("opacity", 0).attr("visibility", "hidden");
+			};
+			
+			document.getElementById("MovementButton").onclick = function(){
+				d3.selectAll(".gameStatsScreen").transition().duration(1000).style("opacity", 0).attr("visibility", "hidden");
+				d3.selectAll(".playerStatsScreen").transition().duration(1000).style("opacity", 0).attr("visibility", "hidden");
+				d3.selectAll(".shotChartScreen").transition().duration(1000).style("opacity", 0).attr("visibility", "hidden");
+				d3.selectAll(".movementScreen").transition().duration(1000).style("opacity", 1).attr("visibility", "visible");
+			};
+		
+
+			//Define variables for the height and width of the content container, scaled to screen
+			var hscale = 0.47;
+			var wscale = 0.65;
+
+			var w = screen.width * wscale;
+			var h = screen.height * hscale;
+			
+			//Create an SVG element
+			var contentSVG = d3.select("body").select("#contentContainer")
+				.attr("width", w)
+				.attr("height", h)
+				.append("svg")
+				.attr("width", w)
+				.attr("height", h);
+	
+			contentSVG.append("rect")
+				.attr("id", "contentBackground")
+				.attr("x", 0)
+				.attr("y", 0)
+				.attr("width", w)
+				.attr("height", h)
+				.attr("fill","rgb(111,111,111)");
+				
+				
+			//Create a seperate static frame for timeline/area chart
+			//Use same width as content frame
+			var timeh = screen.height * 0.15 + 100; //+100 for margins for the time remaining text and header
+			
+			//Create another SVG element
+			var timelineSVG = d3.select("body").select("#timelineContainer")
+				.attr("width", w)
+				.attr("height", timeh)
+				.attr("style", "margin-top:"+(h+102)+"px") //Place this below the content container... height of content container + 102 for menu height/margins
+				.append("svg")
+				.attr("width", w)
+				.attr("height", timeh);
+	
+			timelineSVG.append("rect")
+				.attr("id", "timelineBackground")
+				.attr("x", 0)
+				.attr("y", 0)
+				.attr("width", w)
+				.attr("height", timeh)
+				.attr("fill","rgb(111,111,111)");
+				
+				
+
+				
+			//The main function that creates all of the visulizations with d3, based on the input replay file
+			function createVisualizations(){
+			
+				//Initialize a tooltip div for later
+				var tooltip = d3.select("body").append("div")	
+					.attr("class", "tooltip")				
+					.style("opacity", 0);
+					
+				/////////	
+				//Create game screen
+				/////////
+				
+				//Extract relevant data
+				var teamZeroGoalTotal = data[0].Metadata.Team0Score.Value;
+				var teamOneGoalTotal = data[0].Metadata.Team1Score.Value;
+				
+				var teamZeroAssistTotal = 0;
+				var teamOneAssistTotal = 0;					
+				var teamZeroSaveTotal = 0;
+				var teamOneSaveTotal = 0; 
+				var teamZeroShotTotal = 0; 
+				var teamOneShotTotal = 0;
+				
+				for(var i=0; i < Object.keys(data[0].Metadata.PlayerStats.Value).length; i++){//Loop over all players, extract their stats
+					if(data[0].Metadata.PlayerStats.Value[i].Team.Value == 0){
+						teamZeroAssistTotal = teamZeroAssistTotal + data[0].Metadata.PlayerStats.Value[i].Assists.Value;
+						teamZeroSaveTotal = teamZeroSaveTotal + data[0].Metadata.PlayerStats.Value[i].Saves.Value;
+						teamZeroShotTotal = teamZeroShotTotal + data[0].Metadata.PlayerStats.Value[i].Shots.Value;
+					}
+					else if(data[0].Metadata.PlayerStats.Value[i].Team.Value == 1){
+						teamOneAssistTotal = teamOneAssistTotal + data[0].Metadata.PlayerStats.Value[i].Assists.Value;
+						teamOneSaveTotal = teamOneSaveTotal + data[0].Metadata.PlayerStats.Value[i].Saves.Value;
+						teamOneShotTotal = teamOneShotTotal + data[0].Metadata.PlayerStats.Value[i].Shots.Value;
+					}
+				}
+				
+				//Get the max value so we know how long to make the bars
+				var gameChartMax = Math.max(teamZeroAssistTotal, teamZeroGoalTotal, teamZeroSaveTotal, teamZeroShotTotal, teamOneAssistTotal, teamOneGoalTotal, teamOneSaveTotal, teamOneShotTotal);
+				//Define the data in JSON format
+				var gameData = {"teamZero":[{"Type":"Goals","Value":teamZeroGoalTotal},{"Type":"Assists","Value":teamZeroAssistTotal},{"Type":"Saves","Value":teamZeroSaveTotal},{"Type":"Shots","Value":teamZeroShotTotal},],
+								"teamOne":[{"Type":"Goals","Value":teamOneGoalTotal},{"Type":"Assists","Value":teamOneAssistTotal},{"Type":"Saves","Value":teamOneSaveTotal},{"Type":"Shots","Value":teamOneShotTotal}]}
+
+
+				//Visualize the data
+				var gameChartMiddleGap = 0.44;
+				var gameChartW = w * gameChartMiddleGap; //Leave a gap in the middle for the fields
+				var gameChartH = h;
+				var barPaddingGame = 30;
+				
+				var gameChartLeftPadding = 10;
+				var gameChartTopPadding = 50;
+				var gameChartRightPadding = 10;
+				var gameChartBottomPadding = 10;
+				
+				//Make team zeros stats on the left
+				var gameChartOne = contentSVG.append("svg")
+					.attr("class", "gameStatsScreen")
+					.attr("width", gameChartW)
+					.attr("height", gameChartH)
+					.attr("x", 0)
+					.attr("y", 0);
+				
+				//y-scaling
+				var yScaleGameOne = d3.scaleBand()
+					.range([gameChartTopPadding, gameChartH - gameChartBottomPadding]) //The y range goes from the top padding to the bottom padding
+					.domain(gameData.teamZero.map(function(data) {return data.Type;})); //It maps from data values that span the data
+					
+				//x-scaling
+				var xScaleGameOne = d3.scaleLinear()
+					.range([gameChartLeftPadding, gameChartW - gameChartRightPadding])
+					.domain([0, gameChartMax]); //Scale to values between 0 max value of the stats
+					
+				var yAxisGameOne = d3.axisRight()
+					.scale(yScaleGameOne);
+					
+				var xAxisGameOne = d3.axisBottom()
+					.scale(xScaleGameOne);
+				
+				//Create team zeros bar charts
+				gameChartOne.selectAll(".teamZeroStats")	
+					.data(gameData.teamZero)
+					.enter()
+					.append("rect") //create a rectangle for each stat
+					.attr("class", "teamZeroStats")
+					.attr("rx", 10)
+					.attr("ry", 10)
+					.attr("y", function(d, i) {
+						return i * ((gameChartH - gameChartTopPadding - gameChartBottomPadding)/ gameData.teamZero.length) + gameChartTopPadding;
+					})
+					.attr("x", function(d) {
+						return gameChartW - xScaleGameOne(d.Value) + gameChartLeftPadding - gameChartRightPadding;
+					})
+					.attr("fill", "blue") //Make em blue
+					.attr("height", gameChartH / gameData.teamZero.length - barPaddingGame)
+					.transition()
+						.duration(1000)
+						.attr("width", function(d) {
+							return xScaleGameOne(d.Value) - gameChartRightPadding;
+						});
+					
+				//Add labels
+				gameChartOne.selectAll(".gameOneChartLabelsOne")	
+					.data(gameData.teamZero)
+					.enter()
+					.append("text")
+					.attr("class", "gameOneChartLabelsOne")
+					.attr("y", function(d, i) {
+						return i * ((gameChartH - gameChartTopPadding - gameChartBottomPadding)/ gameData.teamZero.length) + gameChartTopPadding +  (96/gameData.teamZero.length) + barPaddingGame/2;
+					})
+					.attr("x", function(d) {
+						return gameChartW - xScaleGameOne(d.Value) + gameChartLeftPadding - gameChartRightPadding + ((xScaleGameOne(d.Value) - gameChartRightPadding)/2);
+					})
+					.attr("fill", "white")
+					.attr("font-size", 22.5)
+					.text(function(d) {
+						return d.Value; //Get the values from the data
+					});
+				
+					
+				//Make team ones stats mirrored on the right
+				var gameChartTwo = contentSVG.append("svg")
+					.attr("class", "gameStatsScreen")
+					.attr("width", gameChartW)
+					.attr("height", gameChartH)
+					.attr("x", w* (1-gameChartMiddleGap))
+					.attr("y", 0);
+					
+				var yScaleGameTwo = d3.scaleBand()
+					.range([gameChartTopPadding, gameChartH - gameChartBottomPadding]) //The y range goes from the top padding to the bottom padding
+					.domain(gameData.teamZero.map(function(data) {return data.Type;})); //It maps from data values that span the data
+					
+				//x-scaling
+				var xScaleGameTwo = d3.scaleLinear()
+					.range([gameChartLeftPadding, gameChartW - gameChartRightPadding])
+					.domain([0, gameChartMax]); //Scale to values between 0 max value of the stats
+					
+				var yAxisGameTwo = d3.axisLeft()
+					.scale(yScaleGameTwo);
+					
+				var xAxisGameTwo = d3.axisBottom()
+					.scale(xScaleGameTwo);
+				
+				//Create team ones bar charts
+				gameChartTwo.selectAll(".teamOneStats")	
+					.data(gameData.teamOne)
+					.enter()
+					.append("rect") //create a rectangle for each stat
+					.attr("class", "teamOneStats")
+					.attr("rx", 10)
+					.attr("ry", 10)
+					.attr("y", function(d, i) {
+						return i * ((gameChartH - gameChartTopPadding - gameChartBottomPadding)/ gameData.teamOne.length) + gameChartTopPadding;
+					})
+					.attr("x", gameChartLeftPadding)
+					.attr("fill", "orange") //Make em orange
+					.attr("height", gameChartH / gameData.teamOne.length - barPaddingGame)
+					.transition()
+						.duration(1000)
+						.attr("width", function(d) {
+						return xScaleGameTwo(d.Value) + gameChartLeftPadding - gameChartRightPadding;
+						});
+					
+				//Add labels
+				gameChartTwo.selectAll(".gameOneChartLabelsTwo")	
+					.data(gameData.teamOne)
+					.enter()
+					.append("text")
+					.attr("class", "gameOneChartLabelsTwo")
+					.attr("y", function(d, i) {
+						return i * ((gameChartH - gameChartTopPadding - gameChartBottomPadding)/ gameData.teamOne.length) + gameChartTopPadding +  (96/gameData.teamOne.length) + barPaddingGame/2;
+					})
+					.attr("x", function(d) {
+						return (xScaleGameTwo(d.Value) - gameChartRightPadding)/2 + gameChartLeftPadding;
+					})
+					.attr("fill", "white")
+					.attr("font-size", 22.5)
+					.text(function(d) {
+						return d.Value; //Get the values from the data
+					});
+					
+				//Add some extra text (headers, other labels)
+				contentSVG.append("text")
+					.text("Team Blue")
+					.attr("class", "gameStatsScreen")
+					.attr("x", w*0.25)
+					.attr("y", h*0.07)
+					.attr("text-anchor", "middle")
+					.attr("font-size", 28)
+					.attr("fill", "white");
+					
+				contentSVG.append("text")
+					.text("Team Orange")
+					.attr("class", "gameStatsScreen")
+					.attr("x", w*0.75)
+					.attr("y", h*0.07)
+					.attr("text-anchor", "middle")
+					.attr("font-size", 28)
+					.attr("fill", "white");
+					
+				contentSVG.selectAll("#gameStatLabelText")
+					.data(gameData.teamOne)
+					.enter()
+					.append("text")
+					.attr("id", "gameStatLabelText")
+					.attr("class", "gameStatsScreen")
+					.text(function(d) {
+						return d.Type;
+					})
+					.attr("x", w*0.5)
+					.attr("y", function(d, i) {
+						return i * ((gameChartH - gameChartTopPadding - gameChartBottomPadding)/ gameData.teamOne.length) + gameChartTopPadding +  (96/gameData.teamOne.length) + barPaddingGame/2;
+					})
+					.attr("text-anchor", "middle")
+					.attr("font-size", 28)
+					.attr("fill", "white");
+				
+				
+		
+				/////////
+				//Create player stats screen
+				/////////
+				
+				//Extract relevant data
+				var playerNames = data[0].Metadata.PlayerStats.Value;
+				
+				var playerChartMax;
+				var playerGoalTotal;
+				var playerSaveTotal;
+				var playerShotTotal;
+				var playerName; 
+				var playerTeam;
+				
+				//Create a function to make data switching from player to player easy
+				function getPlayerStats(id){
+					var playerID = id;
+					
+					playerGoalTotal = data[0].Metadata.PlayerStats.Value[playerID].Goals.Value;
+					playerAssistTotal = data[0].Metadata.PlayerStats.Value[playerID].Assists.Value;
+					playerSaveTotal = data[0].Metadata.PlayerStats.Value[playerID].Saves.Value;
+					playerShotTotal = data[0].Metadata.PlayerStats.Value[playerID].Shots.Value;
+					playerName = data[0].Metadata.PlayerStats.Value[playerID].Name.Value;
+					playerScore = data[0].Metadata.PlayerStats.Value[playerID].Score.Value;
+					playerTeam = data[0].Metadata.PlayerStats.Value[playerID].Team.Value;
+					
+					playerChartMax = Math.max(playerGoalTotal, playerAssistTotal, playerSaveTotal, playerShotTotal);
+					var playerDat = [{"Type":"Goals","Value":playerGoalTotal},{"Type":"Assists","Value":playerAssistTotal},{"Type":"Saves","Value":playerSaveTotal},{"Type":"Shots","Value":playerShotTotal}]
+					return playerDat;
+				}
+				
+				//Set the initial State
+				var playerData = getPlayerStats(0);
+				
+				//Create buttons for each player
+				var playerMenuHeight = 30;
+				
+				var playerMenu = contentSVG.append("g")
+									.attr("class", "playerStatsScreen")
+									.attr("id", "playerMenu");
+				
+				//Create the menu of players names. When clicked display that users data
+				playerMenu.selectAll("#playerMenu.playerStatsButtons")	
+					.data(playerNames)
+					.enter()
+					.append("rect")
+					.attr("class", "playerStatsButtons")
+					.attr("stroke", function(d, i) {
+						if(d.Team.Value == 0){
+							return "blue";
+						}
+						else{
+							return "orange";
+						}
+					}) 
+					.attr("stroke-width", 2)
+					.attr("x", function(d, i) {
+						return i * w/playerNames.length;
+					})
+					.attr("y", 0)
+					.attr("height", playerMenuHeight)
+					.attr("width", (w-playerNames.length*4)/playerNames.length)
+					.on("click", function(d, i) {
+						playerData = getPlayerStats(i);
+						playerChart.select("#playerStatsName").transition().duration(1000).text(playerName + " - Score: " + playerScore);
+						
+						playerChart.selectAll(".playerStats").data(playerData).remove(); //Remove the previous data
+						
+						xScalePlayerChart = d3.scaleLinear()
+							.range([playerChartLeftPadding, playerChartW - playerChartRightPadding])
+							.domain([0, playerChartMax]); //Scale to values between 0 max value of the stats
+						
+						//Redraw the new stats
+						playerChart.selectAll(".playerStats").data(playerData).enter().append("rect").attr("class", "playerStats")
+							.attr("rx", 10)
+							.attr("ry", 10)
+							.attr("y", function(d, i) {
+								return i * ((playerChartH - playerChartTopPadding - playerChartBottomPadding)/ playerData.length) + playerChartTopPadding;
+							})
+							.attr("x", playerChartLeftPadding)
+							.attr("fill", function(){
+								if(playerTeam == 0){
+									return "blue";
+								}
+								else{
+									return "orange";
+								}
+							}) //Make em team coloured
+							.attr("height", playerChartH / playerData.length - barPaddingPlayer)
+							.transition()
+								.duration(1000)
+								.attr("width", function(d) {
+									return xScalePlayerChart(d.Value) - playerChartRightPadding;
+								});
+						
+						//Remove and redraw the labels in the bars
+						playerChart.selectAll(".playerChartLabelsTwo").data(playerData).remove();	
+							
+						playerChart.selectAll(".playerChartLabelsTwo")	
+							.data(playerData)
+							.enter()
+							.append("text")
+							.attr("class", "playerChartLabelsTwo")
+							.attr("y", function(d, i) {
+								return i * ((playerChartH - playerChartTopPadding - playerChartBottomPadding)/ playerData.length) + playerChartTopPadding +  (playerChartH / playerData.length - barPaddingPlayer)*1.25/2;
+							})
+							.attr("x", function(d) {
+								return (xScalePlayerChart(d.Value) - playerChartRightPadding)/2 + playerChartLeftPadding;
+							})
+							.attr("fill", "white")
+							.attr("font-size", 19.5)
+							.text(function(d) {
+								return d.Value; //Get the values from the data
+							});
+					
+					});
+				
+				//Text element for current users name
+				playerMenu.selectAll("#playerMenu.playerStatsText")
+					.data(playerNames)
+					.enter()
+					.append("text")
+					.attr("class", "playerStatsText")
+					.attr("x", function(d, i) {
+						return i * w/playerNames.length + w*0.01;
+					})
+					.attr("y", playerMenuHeight/2)
+					.attr("fill", "white")
+					.text(function(d, i) {
+						return d.Name.Value;
+					});
+				
+				
+				//Visualize the data
+				
+				//A car image
+				contentSVG.append("image")
+					.attr("class", "playerStatsScreen")
+					.attr("width", w*0.35)
+					.attr("height", h - playerMenuHeight)
+					.attr("y", playerMenuHeight)
+					.attr("xlink:href", "./Images/tempOctane.png");
+					
+				//Don't use the whole width for the data, fill it with the above image
+				var playerChartW = w * 0.6;
+				var playerChartH = h;
+				var barPaddingPlayer = 45;
+				
+				var playerChartLeftPadding = 70;
+				var playerChartTopPadding = 80;
+				var playerChartRightPadding = 40;
+				var playerChartBottomPadding = 10;
+				
+				//Give the stats for one player
+				var playerChart = contentSVG.append("svg")
+					.attr("class", "playerStatsScreen")
+					.attr("width", playerChartW)
+					.attr("height", playerChartH)
+					.attr("x", w*0.4)
+					.attr("y", 0);
+				
+				//y-scaling
+				var yScalePlayerChart = d3.scaleBand()
+					.range([playerChartTopPadding, playerChartH - playerChartBottomPadding]) //The y range goes from the top padding to the bottom padding
+					.domain(playerData.map(function(data) {return data.Type;})); //It maps from data values that span the data
+					
+				//x-scaling
+				var xScalePlayerChart = d3.scaleLinear()
+					.range([playerChartLeftPadding, playerChartW - playerChartRightPadding])
+					.domain([0, playerChartMax]); //Scale to values between 0 max value of the stats
+					
+				var yAxisPlayerChart = d3.axisLeft()
+					.scale(yScalePlayerChart);
+					
+				var xAxisPlayerChart = d3.axisBottom()
+					.scale(xScalePlayerChart);
+				
+				//Draw the bars for that user
+				playerChart.selectAll(".playerStats")	
+					.data(playerData)
+					.enter()
+					.append("rect") //create a rectangle for each stat
+					.attr("class", "playerStats")
+					.attr("rx", 10)
+					.attr("ry", 10)
+					.attr("y", function(d, i) {
+						return i * ((playerChartH - playerChartTopPadding - playerChartBottomPadding)/ playerData.length) + playerChartTopPadding;
+					})
+					.attr("x", playerChartLeftPadding)
+					.attr("fill", function(){
+						if(playerTeam == 0){ //Make it team coloured
+							return "blue";
+						}
+						else{
+							return "orange";
+						}
+					})
+					.attr("height", playerChartH / playerData.length - barPaddingPlayer)
+					.transition()
+						.duration(1000)
+						.attr("width", function(d) {
+							return xScalePlayerChart(d.Value) - playerChartRightPadding;
+						});
+					
+				//Add labels
+				playerChart.selectAll(".playerChartLabelsTwo")	
+					.data(playerData)
+					.enter()
+					.append("text")
+					.attr("class", "playerChartLabelsTwo")
+					.attr("y", function(d, i) {
+						return i * ((playerChartH - playerChartTopPadding - playerChartBottomPadding)/ playerData.length) + playerChartTopPadding +  (playerChartH / playerData.length - barPaddingPlayer)*1.25/2;
+					})
+					.attr("x", function(d) {
+						return (xScalePlayerChart(d.Value) - playerChartRightPadding)/2 + playerChartLeftPadding;
+					})
+					.attr("fill", "white")
+					.attr("font-size", 19.5)
+					.text(function(d) {
+						return d.Value; //Get the values from the data
+					});
+				
+				//Current users name + score
+				playerChart.append("text")
+					.text(playerName + " - Score: " + playerScore)
+					.attr("class", "playerStatsScreen")
+					.attr("id", "playerStatsName")
+					.attr("x", playerChartW *0.5)
+					.attr("y", playerChartH *0.1 + playerMenuHeight)
+					.attr("text-anchor", "middle")
+					.attr("font-size", 28)
+					.attr("fill", "white");
+				
+				//Stat labels
+				contentSVG.selectAll("#playerStatLabelText")
+					.data(playerData)
+					.enter()
+					.append("text")
+					.attr("id", "playerStatLabelText")
+					.attr("class", "playerStatsScreen")
+					.text(function(d) {
+						return d.Type;
+					})
+					.attr("x", w*0.4)
+					.attr("y", function(d, i) {
+						return i * ((playerChartH - playerChartTopPadding - playerChartBottomPadding)/ playerData.length) + playerChartTopPadding +  (playerChartH / playerData.length - barPaddingPlayer)*1.25/2;
+					})
+					.attr("text-anchor", "middle")
+					.attr("font-size", 26)
+					.attr("fill", "white");
+					
+
+				///////////
+				//Create shot chart screen
+				///////////
+				
+				//Plot the background pitch and goal images
+				contentSVG.append("image")
+					.attr("class", "shotChartScreen")
+					.attr("width", w*0.44)
+					.attr("height", h - 140)
+					.attr("xlink:href", "./Images/net.jpg")
+					.attr("preserveAspectRatio", "none")
+					.attr("transform", "translate("+w*0.05+",35)");
+					
+				contentSVG.append("image")
+					.attr("class", "shotChartScreen")
+					.attr("width", w*0.44)
+					.attr("height", h - 140)
+					.attr("xlink:href", "./Images/stadium.png")
+					.attr("preserveAspectRatio", "none")
+					.attr("transform", "translate("+w*0.51+",35)");
+					
+									
+				//Plot the goals location in net chart	
+				//Find the balls position when it is scored
+				var scoredX = [];
+				var scoredY = [];
+				var scoredZ = [];
+				
+				//Go through all the frames and find what we need
+				for(var nframe = 0; nframe < data[0].Frames.length; nframe++)
+				{
+					Object.keys(data[0].Frames[nframe].Updated).forEach(function(key,index) {
+						Object.keys(data[0].Frames[nframe].Updated[key]).forEach(function(key2,index2) {
+							if(key2 == "TAGame.Ball_TA:ReplicatedExplosionData"){ //X and Z give us ball position in the net, Y gives us the team that scored
+								scoredX.push(data[0].Frames[nframe].Updated[key]['TAGame.RBActor_TA:ReplicatedRBState'].Value.Position[0]);
+								scoredY.push(data[0].Frames[nframe].Updated[key]['TAGame.RBActor_TA:ReplicatedRBState'].Value.Position[1]);
+								scoredZ.push(data[0].Frames[nframe].Updated[key]['TAGame.RBActor_TA:ReplicatedRBState'].Value.Position[2]);
+							}
+						});
+					});
+				}
+					
+				//Plot points onto goal chart	
+				var xScaleGoal = d3.scaleLinear()
+					.range([w*0.05, w*0.49]) 
+					.domain([-945, 945]); //Based on approximations made from formulas at https://www.reddit.com/r/RocketLeague/comments/3b00fn/rocket_league_physics_and_field_size/
+					
+				var yScaleGoal = d3.scaleLinear()
+					.range([35, h-105])
+					.domain([0, 671]); //Approximate height of goal based on formulas at https://www.reddit.com/r/RocketLeague/comments/3b00fn/rocket_league_physics_and_field_size/
+				
+				//Make the data into one multidim array
+				var goalPoints = [];
+				for(var i=0;i<scoredX.length;i++){
+				   goalPoints.push([scoredX[i],scoredZ[i], scoredY[i]]);
+				}
+				
+				
+				//Plot the shots onto an image of the goal
+				contentSVG.selectAll("#goalPoints")
+					.data(goalPoints)
+					.enter().append("circle")
+						.attr("id", "goalPoints")
+						.attr("class", "shotChartScreen")
+						.attr("fill", function(d) { //We can determine who scored based on the Y-coordinate of the ball when scored
+							if(d[2] > 0){
+								return "blue";
+							}
+							else if(d[2] < 0){
+								return "orange";
+							}
+						})
+						.attr("stroke", "white")
+						.attr("stroke-width", 5)
+						.attr("r", 10)
+						.attr("cx", function(d) { return xScaleGoal(d[0]); })
+						.attr("cy", function(d) { return yScaleGoal(d[1]); })
+						.on("mouseover", function(d) { //Define the tooltips for the points
+							tooltip.transition()		
+								.duration(200)		
+								.style("opacity", .9);		
+							tooltip.html("(" + Math.round(d[0]) + "," + Math.round(d[1]) + ")")
+								.style("top", (d3.event.pageY + 16) + "px")
+								.style("left", (d3.event.pageX + 16) + "px");	
+						})
+						.on("mouseout", function(d) {		
+							tooltip.transition()		
+								.duration(500)		
+								.style("opacity", 0);	
+						});
+						
+						
+				//Shot location on pitch chart		
+				//Keep track of TAGame.Ball_TA:HitTeamNum, find the location of the ball at that point, Search for TAGame.PRI_TA:MatchShots
+				var shotLocationX = [];
+				var shotLocationY = [];
+				var shotTeam = [];
+				var tempLocationX;
+				var tempLocationY;
+				var tempTeam;
+				
+				//Loop through all frames to get the data we need
+				for(var nframe = 0; nframe < data[0].Frames.length; nframe++)
+				{
+					Object.keys(data[0].Frames[nframe].Updated).forEach(function(key,index) {
+						Object.keys(data[0].Frames[nframe].Updated[key]).forEach(function(key2,index2) {
+							if(key2 == "TAGame.Ball_TA:HitTeamNum"){ //Keep track of the last team to hit the ball and where they hit it
+								tempLocationX = data[0].Frames[nframe].Updated[key]['TAGame.RBActor_TA:ReplicatedRBState'].Value.Position[0];
+								tempLocationY = data[0].Frames[nframe].Updated[key]['TAGame.RBActor_TA:ReplicatedRBState'].Value.Position[1];
+								tempTeam = data[0].Frames[nframe].Updated[key][key2].Value;
+							}
+							
+							if(key2 == "TAGame.PRI_TA:MatchShots"){ //Once we know a shot has been taken, take the most recent shot and position values from above
+								shotLocationX.push(tempLocationX);
+								shotLocationY.push(tempLocationY);
+								shotTeam.push(tempTeam);
+							}
+						});
+					});
+				}
+				
+				//Note: number of shots here may not match metadata of shots
+				
+				var xScaleShots = d3.scaleLinear()
+					.range([w*0.51, w*0.95]) 
+					.domain([-4120, 4120]);//X dimensions of the field
+					
+				var yScaleShots = d3.scaleLinear()
+					.range([35, h-105])
+					.domain([-5140, 5140]);//Y dimensions of the field
+				
+				//Consolidate to one array
+				var shotPoints = [];
+				for(var i=0;i<shotLocationX.length;i++){
+				   shotPoints.push([shotLocationX[i],shotLocationY[i], shotTeam[i]]);
+				}
+				
+				//Plot the shots to the field image
+				contentSVG.selectAll("#shotPoints")
+					.data(shotPoints)
+					.enter().append("circle")
+						.attr("id", "shotPoints")
+						.attr("class", "shotChartScreen")
+						.attr("fill", function(d) { //Make them team coloured
+							if(d[2] == 0){
+								return "blue";
+							}
+							else if(d[2] == 1){
+								return "orange";
+							}
+						})
+						.attr("stroke", "grey")
+						.attr("stroke-width", 2)
+						.attr("r", 7)
+						.attr("cx", function(d) { return xScaleShots(d[0]); })
+						.attr("cy", function(d) { return yScaleShots(d[1]); })
+						.on("mouseover", function(d) { //Define the tooltips
+							tooltip.transition()		
+								.duration(200)		
+								.style("opacity", .9);		
+							tooltip.html("(" + Math.round(d[0]) + "," + Math.round(d[1]) + ")")
+								.style("top", (d3.event.pageY + 16) + "px")
+								.style("left", (d3.event.pageX + 16) + "px");	
+						})
+						.on("mouseout", function(d) {		
+							tooltip.transition()		
+								.duration(500)		
+								.style("opacity", 0);	
+						});
+				
+				//Plot the titles of the charts				
+				contentSVG.append("text")
+					.attr("class", "shotChartScreen")
+					.attr("x", w*0.25)
+					.attr("y", h - 50)
+					.text("Scoring locations")
+					.attr("text-anchor", "middle")
+					.attr("font-size", 26)
+					.attr("fill", "white");
+					
+				contentSVG.append("text")
+					.attr("class", "shotChartScreen")
+					.attr("x", w*0.75)
+					.attr("y", h - 50)
+					.text("Shot locations")
+					.attr("text-anchor", "middle")
+					.attr("font-size", 26)
+					.attr("fill", "white");
+				
+
+								
+				////////////
+				//Create movement screen
+				////////////
+				
+				//Get ball and player data
+				
+				//Get the player names to create buttons later and for data render
+				var movementNames;
+				
+				movementNames = data[0].Metadata.PlayerStats.Value; 
+				movementNames[movementNames.length] = { //Add the ball onto the end, so we create a button for it later
+				"Name": {
+					"Size": 0,
+					"Value": "Ball",
+					"Type": "Str"
+				},
+				"Team": {
+					"Size": 4,
+					"Value": 2,
+					"Type": "Int"
+				}}
+				
+				
+				//Get indexed player/ball movement arrays
+				
+				//Get the balls X and Y positions
+				var movementBallX = [];
+				var movementBallY = [];
+				var currBallID = 0;
+				
+				//Search through the frames
+				for(var nframe = 0; nframe < data[0].Frames.length; nframe++)
+				{
+					Object.keys(data[0].Frames[nframe].Spawned).forEach(function(key,index) {
+						if(data[0].Frames[nframe].Spawned[key].Class == "TAGame.Ball_TA"){ //Keep track of the id for the current ball
+							currBallID = key;
+						}
+					});
+
+					if(typeof data[0].Frames[nframe].Updated[currBallID] != 'undefined'){
+						if(typeof data[0].Frames[nframe].Updated[currBallID]['TAGame.RBActor_TA:ReplicatedRBState']!= 'undefined'){ //Keep track of its position at every frame it is updated
+							movementBallX.push(data[0].Frames[nframe].Updated[currBallID]['TAGame.RBActor_TA:ReplicatedRBState'].Value.Position[0]);
+							movementBallY.push(data[0].Frames[nframe].Updated[currBallID]['TAGame.RBActor_TA:ReplicatedRBState'].Value.Position[1]);
+						}
+					}
+				}
+				
+				
+				//Get all players X and Y positions
+				var movementPlayersX = [];
+				var movementPlayersY = [];
+				var currPlayerIDs = [];
+				var currPlayerlength = playerNames.length;
+				
+				//Search through the frames
+				for(var nframe = 0; nframe < data[0].Frames.length; nframe++)
+				{
+					Object.keys(data[0].Frames[nframe].Spawned).forEach(function(key,index) {
+						if(data[0].Frames[nframe].Spawned[key].Class == "TAGame.Car_TA"){ //Keep track of the car IDs
+							if(currPlayerIDs.length < currPlayerlength){
+								currPlayerIDs.push(key);
+							}
+							else{
+								currPlayerIDs.shift();
+								currPlayerIDs.push(key);
+							}
+						}
+					});
+					
+					for(var playerIndex = 0; playerIndex < currPlayerIDs.length; playerIndex++){
+						var pID = currPlayerIDs[playerIndex]; 
+						if(typeof data[0].Frames[nframe].Updated[pID] != 'undefined'){
+							if(typeof data[0].Frames[nframe].Updated[pID]['TAGame.RBActor_TA:ReplicatedRBState']!= 'undefined'){ //Keep track of the cars positions
+								movementPlayersX.push(data[0].Frames[nframe].Updated[pID]['TAGame.RBActor_TA:ReplicatedRBState'].Value.Position[0]);
+								movementPlayersY.push(data[0].Frames[nframe].Updated[pID]['TAGame.RBActor_TA:ReplicatedRBState'].Value.Position[1]);
+							}
+						}
+					}
+				}
+				
+				//Keep track of what we want to plot
+				var currentMoveX = [];
+				var currentMoveY = [];
+				var currentMoveName;
+				
+				//Helper function for data switching when a submenu button is pushed
+				function getCurrentMovementData(id){
+				
+					if(id == movementNames.length - 1){ //Ball data
+						currentMoveX = [];
+						currentMoveY = [];
+						currentMoveName = "Ball";
+						for(var moveIndex = 0; moveIndex < movementBallX.length; moveIndex++){
+							currentMoveX.push(movementBallX[moveIndex]); 
+							currentMoveY.push(movementBallY[moveIndex]);
+						}
+						
+					}
+					else{ //Player data
+						currentMoveName = movementNames[id].Name.Value;
+						currentMoveX = [];
+						currentMoveY = [];
+						for(var moveIndex = 0; moveIndex < movementPlayersX.length/movementNames.length; moveIndex++){
+							currentMoveX.push(movementPlayersX[(moveIndex * movementNames.length) + id]); 
+							currentMoveY.push(movementPlayersY[(moveIndex * movementNames.length) + id]);
+						}
+
+					}
+				}
+				
+				getCurrentMovementData(0); //Initialize the data
+
+				//Create the heatmaps
+				var heatx = d3.scaleLinear()
+					.domain([Math.min.apply(Math, currentMoveX), Math.max.apply(Math, currentMoveX)])
+					.range([0, w-150]);
+
+				var heaty = d3.scaleLinear()
+					.domain([Math.min.apply(Math, currentMoveY), Math.max.apply(Math, currentMoveY)])
+					.range([0, h-150]);
+				
+				//Create an array of arrays for ease
+				var points = [];
+				for(var i=0;i<movementBallX.length;i++){
+				   points.push([heatx(currentMoveX[i]),heaty(currentMoveY[i])]);
+				}
+				
+				//Define the colour scale
+				var color = d3.scaleSequential(d3.interpolateLab("white", "red"))
+					.domain([0, 25]);
+				
+				//Define the hexagon size and bounds
+				var hexbin = d3.hexbin()
+					.radius(10)
+					.extent([[0, 0], [w-150, h-150]]);
+					
+				//Set down the stadium image
+				contentSVG.append("image")
+					.attr("class", "movementScreen")
+					.attr("width", w - 140)
+					.attr("height", h - 140)
+					.attr("xlink:href", "./Images/stadium.png")
+					.attr("preserveAspectRatio", "none")
+					.attr("transform", "translate(55,35)"); //Don't translate exactly where hexs are to allow for width of the hexes
+				
+				//Plot the hexes on top
+				contentSVG.append("g")
+					.attr("class", "movementScreen")
+					.attr("id", "movementHexGridContainer")
+					.selectAll("path")
+					.data(hexbin(points))
+					.enter().append("path")
+						.attr("class", "movementHexes")
+						.attr("opacity", 0.5)
+						.attr("d", hexbin.hexagon())
+						.attr("transform", function(d) { return "translate(" + (d.x + 60) + "," + (d.y + 40) + ")"; })//Translate them away from the edges
+						.attr("fill", function(d) { return color(d.length); });
+				
+					
+				
+				//Create ball and player movement buttons
+				var movementMenuHeight = 30;
+				
+				var movementMenu = contentSVG.append("g")
+									.attr("class", "movementScreen")
+									.attr("id", "movementMenu");
+				
+				//Create the buttons
+				movementMenu.selectAll("#movementMenu.movementButtons")	
+					.data(movementNames)
+					.enter()
+					.append("rect")
+					.attr("class", "movementButtons")
+					.attr("stroke", function(d, i) {
+						if(d.Team.Value == 0){
+							return "blue";
+						}
+						else if(d.Team.Value == 1){
+							return "orange";
+						}
+						else{
+							return "white"; //Ball doesn't have a team!
+						}
+					}) 
+					.attr("stroke-width", 2)
+					.attr("x", function(d, i) {
+						return i * w/movementNames.length;
+					})
+					.attr("y", h - movementMenuHeight)
+					.attr("height", movementMenuHeight)
+					.attr("width", (w-movementNames.length*4)/movementNames.length)
+					.on("click", function(d, i) {
+						//Function to plot the movement data for that entity
+						getCurrentMovementData(i);
+						
+						//Rescale
+						heatx = d3.scaleLinear()
+							.domain([Math.min.apply(Math, currentMoveX), Math.max.apply(Math, currentMoveX)])
+							.range([0, w-150]);
+
+						heaty = d3.scaleLinear()
+							.domain([Math.min.apply(Math, currentMoveY), Math.max.apply(Math, currentMoveY)])
+							.range([0, h-150]);
+							
+						points = [];
+						for(var i=0;i<movementBallX.length;i++){
+						   points.push([heatx(currentMoveX[i]),heaty(currentMoveY[i])]);
+						}
+						
+						//Remove the old hexes
+						contentSVG.selectAll(".movementHexes").data(hexbin(points)).remove();
+						
+						//Plot the new ones
+						contentSVG.append("g")
+							.attr("class", "movementScreen")
+							.attr("id", "movementHexGrid")
+							.selectAll("path")
+							.data(hexbin(points))
+							.enter().append("path")
+								.attr("class", "movementHexes")
+								.attr("opacity", 0.5)
+								.attr("d", hexbin.hexagon())
+								.attr("transform", function(d) { return "translate(" + (d.x + 60) + "," + (d.y + 40) + ")"; })
+								.attr("fill", function(d) { return color(d.length); });
+						
+						//Don't forget to change the name too
+						contentSVG.select("#movementPlayerName").transition().duration(1000).text(currentMoveName);
+						
+					})
+				
+				//Plot the names into the buttons
+				movementMenu.selectAll("#movementMenu.movementText")
+					.data(movementNames)
+					.enter()
+					.append("text")
+					.attr("class", "movementText")
+					.attr("x", function(d, i) {
+						return i * w/movementNames.length + w*0.01;
+					})
+					.attr("y", h - movementMenuHeight/2)
+					.attr("fill", "white")
+					.attr("font-size", 12)
+					.text(function(d, i) {
+						return d.Name.Value;
+					});
+				
+				//Plot the current players name
+				contentSVG.append("text")
+					.text(currentMoveName)
+					.attr("class", "movementScreen")
+					.attr("id", "movementPlayerName")
+					.attr("x", w*0.5)
+					.attr("y", h - movementMenuHeight - 20)
+					.attr("text-anchor", "middle")
+					.attr("font-size", 20)
+					.attr("fill", "white");
+
+				///////////	
+				//Create timeline, and area chart
+				////////////
+				
+				//Get timeline data
+				//Use TAGame.GameEvent_Soccar_TA:SecondsRemaining + frame markings for saves and stuff
+				//TAGame.PRI_TA:MatchSaves for saves and TAGame.PRI_TA:MatchGoals
+				var timeData = []; //Save ball Y position, frame, and time remaining
+				var eventData = []; //Save ball Y position, goal or save, and time of event
+				var currBallIDTime;
+				var currBallLocTime;
+				var currSecondsRemain;
+				
+				//Go through the frames for the data
+				for(var nframe = 0; nframe < data[0].Frames.length; nframe++)
+				{
+					Object.keys(data[0].Frames[nframe].Spawned).forEach(function(key,index) {
+						if(data[0].Frames[nframe].Spawned[key].Class == "TAGame.Ball_TA"){
+							currBallIDTime = key; //Keep track of where the ball actor, so we can tell what team made a save/goal
+						}
+					});
+
+					if(typeof data[0].Frames[nframe].Updated[currBallIDTime] != 'undefined'){
+						if(typeof data[0].Frames[nframe].Updated[currBallIDTime]['TAGame.RBActor_TA:ReplicatedRBState']!= 'undefined'){
+							currBallLocTime = data[0].Frames[nframe].Updated[currBallIDTime]['TAGame.RBActor_TA:ReplicatedRBState'].Value.Position[1]; //Y location of the ball tells us who is scoring/saving
+						}
+					}
+					
+					Object.keys(data[0].Frames[nframe].Updated).forEach(function(key,index) {
+						Object.keys(data[0].Frames[nframe].Updated[key]).forEach(function(key2,index2) {
+							if(key2 == "TAGame.GameEvent_Soccar_TA:SecondsRemaining"){ //Keep track of what frame the in game timer updates, so we know the time left
+								currSecondsRemain = data[0].Frames[nframe].Updated[key][key2].Value;
+								timeData.push([currBallLocTime, nframe, currSecondsRemain]);
+							}
+							
+							if(key2 == "TAGame.PRI_TA:MatchGoals"){ //If a goal is made, record the time and y-coord so we know which team scored
+								eventData.push([currBallLocTime, "goal", currSecondsRemain]);
+							}
+							
+							if(key2 == "TAGame.PRI_TA:MatchSaves"){ //If a save is made, record the time and y-coord so we know which team scored
+								eventData.push([currBallLocTime, "save", currSecondsRemain]);
+							}
+						});
+					});
+				}
+				
+				//Render the timeline
+				//Background style rectangles, and text
+				timelineSVG.append("rect")
+					.attr("class", "timelineScreen")
+					.attr("fill", "orange")
+					.attr("height", (timeh*0.9 - 100)/2)
+					.attr("width", w-100)
+					.attr("opacity", 0.2)
+					.attr("x", 50)
+					.attr("y", timeh*0.05 + 50);
+					
+				timelineSVG.append("rect")
+					.attr("class", "timelineScreen")
+					.attr("fill", "blue")
+					.attr("height", (timeh*0.9 - 100)/2)
+					.attr("width", w-100)
+					.attr("opacity", 0.2)
+					.attr("x", 50)
+					.attr("y", timeh*0.5);
+					
+				timelineSVG.append("text")
+					.attr("class", "timelineScreen")
+					.attr("fill", "black")
+					.attr("font-size", 30)
+					.attr("opacity", 0.5)
+					.attr("x", (w-100)/5)
+					.attr("y", (timeh - 100)*0.25 + 60)
+					.text("Orange Attack");
+					
+				timelineSVG.append("text")
+					.attr("class", "timelineScreen")
+					.attr("fill", "black")
+					.attr("font-size", 30)
+					.attr("opacity", 0.5)
+					.attr("x", (w-100)/5)
+					.attr("y", (timeh - 100)*0.75 + 50)
+					.text("Blue Attack");
+				
+				
+				var xScaleTimeline = d3.scaleLinear()
+					.range([50, w-50]) // Give a margin on width of 50
+					.domain([300, 0]); 
+					
+				var yScaleTimeline = d3.scaleLinear()
+					.range([timeh*0.05 + 50, timeh*0.95 - 50])
+					.domain([-5140, 5140]); //Bounds of the y-axis of the field
+					
+				//Plot timeline and area points
+				timelineSVG.append("path")
+					.attr("d", "M " + xScaleTimeline(300)+ " " + yScaleTimeline(0) + " L " + + xScaleTimeline(0)+ " " + yScaleTimeline(0))
+					.attr("stroke", "white");
+
+				//Plot the points onto the timeline
+				timelineSVG.selectAll("#timelinePoints")
+					.data(eventData)
+					.enter().append("circle")
+						.attr("id", "timelinePoints")
+						.attr("class", "timelineScreen")
+						.attr("fill", function(d) { //Determine what the circle looks like based on the event
+							if(d[1] == "goal"){
+								if(d[0] > 0){
+									return "blue";
+								}
+								else{
+									return "orange";
+								}
+							}
+							else if(d[1] == "save"){
+								if(d[0] > 0){
+									return "orange";
+								}
+								else{
+									return "blue";
+								}
+							}
+						})
+						.attr("stroke", function(d) {
+							if(d[1] == "goal"){
+								return "white";
+							}
+							else if(d[1] == "save"){
+								return "black";
+							}
+						})
+						.attr("stroke-width", 2)
+						.attr("r", 7)
+						.attr("cx", function(d) { return xScaleTimeline(d[2]); })
+						.attr("cy", yScaleTimeline(0))
+						.on("mouseover", function(d) { //Define what the tooltip should do
+							var tooltipString = "";
+							if(d[1] == "goal"){
+								if(d[0] > 0){
+									tooltipString = tooltipString + "Blue Goal: ";
+								}
+								else{
+									tooltipString = tooltipString + "Orange Goal: ";
+								}
+							}
+							else if(d[1] == "save"){
+								if(d[0] > 0){
+									tooltipString = tooltipString + "Orange Save: ";
+								}
+								else{
+									tooltipString = tooltipString + "Blue Save: ";
+								}
+							}
+							if((300 - d[2])%60 == 0){
+								tooltipString = tooltipString + Math.floor((300 - d[2])/60) + ":" + (300 - d[2])%60+ "0";
+							}
+							else if((300 - d[2])%60 < 10){
+								tooltipString = tooltipString + Math.floor((300 - d[2])/60) + ":0" + (300 - d[2])%60;
+							}
+							else{
+								tooltipString = tooltipString + Math.floor((300 - d[2])/60) + ":" + (300 - d[2])%60;
+							}
+							
+							tooltip.transition()		
+								.duration(200)		
+								.style("opacity", .9);		
+							tooltip.html(tooltipString)
+								.style("top", (d3.event.pageY + 16) + "px")
+								.style("left", (d3.event.pageX + 16) + "px");	
+						})
+						.on("mouseout", function(d) {		
+							tooltip.transition()		
+								.duration(500)		
+								.style("opacity", 0);	
+						});
+				
+				//Plot the times along the bottom, and make sure they're properly formatted
+				timelineSVG.selectAll("#timelineMarkers")
+					.data(timeData)
+					.enter().append("text")
+						.attr("id", "timelineMarkers")
+						.attr("class", "timelineScreen")
+						.attr("x", function(d) { return xScaleTimeline(d[2]) - 5; })
+						.attr("y", yScaleTimeline(5140) + 20)
+						.attr("font-size", timeh/20)
+						.attr("fill", "white")
+						.text(function(d) { 
+							if(d[2]%10 == 0){
+								if((300 - d[2])%60 == 0){
+									return Math.floor((300 - d[2])/60) + ":" + (300 - d[2])%60 + "0";
+								}
+								else{
+									return Math.floor((300 - d[2])/60) + ":" + (300 - d[2])%60;
+								}
+							}
+							else{
+								return "";
+							}
+						});
+						
+				//Add legend, black border for save, white border for goal, team colours for team action was made by
+				timelineSVG.append("circle")
+						.attr("class", "timelineScreen")
+						.attr("cx", (w-100)/20)
+						.attr("cy", yScaleTimeline(5140) + 50)
+						.attr("r", 7)
+						.attr("fill", "orange")
+						.attr("stroke", "white")
+						.attr("stroke-width", 2);
+						
+				timelineSVG.append("text")
+						.attr("class", "timelineScreen")
+						.attr("x", (w-100)/20 +50)
+						.attr("y", yScaleTimeline(5140) + 50)
+						.attr("fill", "white")
+						.attr("text-anchor", "middle")
+						.text("Orange Goal");
+						
+				timelineSVG.append("circle")
+						.attr("class", "timelineScreen")
+						.attr("cx", 4*(w-100)/20)
+						.attr("cy", yScaleTimeline(5140) + 50)
+						.attr("r", 7)
+						.attr("fill", "orange")
+						.attr("stroke", "black")
+						.attr("stroke-width", 2);
+						
+				timelineSVG.append("text")
+						.attr("class", "timelineScreen")
+						.attr("x", 4*(w-100)/20 +50)
+						.attr("y", yScaleTimeline(5140) + 50)
+						.attr("fill", "white")
+						.attr("text-anchor", "middle")
+						.text("Orange Save");
+						
+				timelineSVG.append("circle")
+						.attr("class", "timelineScreen")
+						.attr("cx", 7*(w-100)/20)
+						.attr("cy", yScaleTimeline(5140) + 50)
+						.attr("r", 7)
+						.attr("fill", "blue")
+						.attr("stroke", "white")
+						.attr("stroke-width", 2);
+						
+				timelineSVG.append("text")
+						.attr("class", "timelineScreen")
+						.attr("x", 7*(w-100)/20 +50)
+						.attr("y", yScaleTimeline(5140) + 50)
+						.attr("fill", "white")
+						.attr("text-anchor", "middle")
+						.text("Blue Goal");
+						
+				timelineSVG.append("circle")
+						.attr("class", "timelineScreen")
+						.attr("cx", 10*(w-100)/20)
+						.attr("cy", yScaleTimeline(5140) + 50)
+						.attr("r", 7)
+						.attr("fill", "blue")
+						.attr("stroke", "black")
+						.attr("stroke-width", 2);
+				
+				timelineSVG.append("text")
+						.attr("class", "timelineScreen")
+						.attr("x", 10*(w-100)/20 +50)
+						.attr("y", yScaleTimeline(5140) + 50)
+						.attr("fill", "white")
+						.attr("text-anchor", "middle")
+						.text("Blue Save");
+						
+				timelineSVG.append("text")
+						.attr("class", "timelineScreen")
+						.attr("x", timeh/-2)
+						.attr("y", 40)
+						.attr("fill", "white")
+						.attr("font-size", timeh/17)
+						.attr("text-anchor", "middle")
+						.attr("transform", "rotate(270)")
+						.text("Ball distance to goal");
+						
+				timelineSVG.append("text")
+						.attr("class", "timelineScreen")
+						.attr("x", w/2)
+						.attr("y", 40)
+						.attr("fill", "white")
+						.attr("font-size", 24)
+						.attr("text-anchor", "middle")
+						.text("Game Timeline");
+				
+				
+				//Area chart
+				//Use ball y-coord from above
+				timelineSVG.selectAll("#timelineAreaPoints")
+					.data(timeData)
+					.enter().append("circle")
+						.attr("id", "timelineAreaPoints")
+						.attr("class", "timelineScreen")
+						.attr("fill", function(d) {
+							if(d[0] > 0){
+								return "blue";
+							}
+							else if(d[0] < 0){
+								return "orange";
+							}
+							else{
+								return "black"; //If the ball is at midfield, plot black
+							}
+						})
+						.attr("r", 3)
+						.attr("cx", function(d) { return xScaleTimeline(d[2]); })
+						.attr("cy", function(d) { return yScaleTimeline(d[0]); });
+						
+
+				//Initialize initial view after creating visualizations
+				d3.selectAll(".gameStatsScreen").transition().duration(500).attr("opacity", "1").attr("visibility", "visible");
+				d3.selectAll(".playerStatsScreen").attr("opacity", "0").attr("visibility", "hidden");
+				d3.selectAll(".shotChartScreen").attr("opacity", "0").attr("visibility", "hidden");
+				d3.selectAll(".movementScreen").attr("opacity", "0").attr("visibility", "hidden");
+				d3.select("#initialText").transition().duration(500).attr("opacity", "0").attr("visibility", "hidden");
+				
+				window.stop();
+
+			}
+			
+			//If data's already read in, make user refresh to get more
+			function alreadyRead(){
+				d3.select("#AlreadyRead").transition().duration(1000)
+					.text("Data already read, refresh to try with new data");
+					
+				window.stop();
+			}
+			
+			//Set the initial text so the user know they have to do something
+			contentSVG.append("text")
+				.text("Select a replay file to view statistics")
+				.attr("id", "initialText")
+				.attr("x", w*0.5)
+				.attr("y", h*0.5)
+				.attr("text-anchor", "middle")
+				.attr("font-size", 35)
+				.attr("fill", "white");
+
+		</script>
+	</body>
+</html>

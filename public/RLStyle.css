@@ -1,0 +1,195 @@
+/********RESET DEFAULT CSS PROPERTIES*****/
+
+/* http://meyerweb.com/eric/tools/css/reset/ 
+   v2.0 | 20110126
+   License: none (public domain)
+*/
+
+html, body, div, span, applet, object, iframe,
+h1, h2, h3, h4, h5, h6, p, blockquote, pre,
+a, abbr, acronym, address, big, cite, code,
+del, dfn, em, img, ins, kbd, q, s, samp,
+small, strike, strong, sub, sup, tt, var,
+b, u, i, center,
+dl, dt, dd, ol, ul, li,
+fieldset, form, label, legend,
+table, caption, tbody, tfoot, thead, tr, th, td,
+article, aside, canvas, details, embed, 
+figure, figcaption, footer, header, hgroup, 
+menu, nav, output, ruby, section, summary,
+time, mark, audio, video {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	vertical-align: baseline;
+}
+
+/***************************************/
+
+
+html , body{
+	margin:0;
+	padding:0;
+	height: 100%;
+}
+
+div{
+	display: block;
+	position: relative;
+	color:white;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	opacity: 0.9;
+}
+
+#aboutText{
+	padding: 10px;
+}
+
+#headerContainer{
+	background-color: black;
+	height: 60px;
+	width: 100%;
+
+}
+
+#menu{
+	display: inline-block;
+	height: 60px;
+}
+
+ul {
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+	display:table;
+}
+
+#menu li {
+    float: left;
+	height:50px;
+	line-height: 40px;
+}
+
+#menu li a{
+	display: inline-block;
+    color: white;
+    text-align: center;
+	font-family: Arial;
+    padding: 8px 20px;
+}
+
+#menu li h1{
+    display: inline-block;
+    color: white;
+    text-align: center;
+    padding: 8px 12px;
+	font-family: Arial;
+	height:50px;
+}
+
+#menu li a:hover {
+    background-color: grey;
+}
+
+
+
+#localInputContainer{
+	display: inline-block;
+	vertical-align: top;
+	padding: 8px 12px;
+}
+
+#URLInputContainer{
+	display: inline-block;
+	vertical-align: top;
+	padding: 8px 12px;
+}
+
+
+
+#contentContainer{
+	background-color: #111111;
+	position:absolute;
+    left:50%;
+    margin-left:-32%;
+}
+
+#contentMenu{
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	display:table;
+	width: 100%;
+}
+
+#contentMenu li{
+	display:table-cell;
+    text-align:center;
+	width: 25%;
+	border: 1px solid grey;
+	line-height: 80px;
+	
+}
+#contentMenu li p{
+	color: white;
+    text-align: center;
+	font-family: Arial;
+	height: 80px;
+    padding: 8px 20px;
+}
+
+#contentMenu li p:hover {
+    background-color: #1E1E1E;
+}
+
+#playerMenu rect {
+    fill: #111111;
+}
+
+#playerMenu rect:hover {
+    fill: #1E1E1E;
+}
+
+#movementMenu rect {
+    fill: #111111;
+}
+
+#movementMenu rect:hover {
+    fill: #1E1E1E;
+}
+
+#timelineContainer{
+	background-color: #111111;
+	position:absolute;
+    left:50%;
+    margin-left:-32%;
+}
+
+#AlreadyReadContainer{
+	display: inline-block;
+	vertical-align: top;
+}
+
+#AlreadyRead{
+	color: white;
+    text-align: center;
+	font-family: Arial;
+	font-size: 30px;
+}
+
+.tooltip {	
+    position: absolute;			
+    text-align: center;
+    width: 100px;					
+    height: 40px;					
+    padding: 2px;					
+    background: black;
+    border: 0px;		
+    border-radius: 8px;			
+    pointer-events: none;			
+}
+
+

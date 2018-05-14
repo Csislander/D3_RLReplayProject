@@ -1,0 +1,24 @@
+{
+  "name": "RLViz",
+  "version": "1.0.0",
+  "main": "RLVizServer.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "connect-multiparty": "^1.1.0",
+    "express": "^4.7.2",
+	"fs": "^0.0.2",
+	"http": "^0.0.0",
+	"path": "^0.12.7",
+	"request": "^2.79.0",
+	"socket.io": "^1.7.3",
+	"xmlhttprequest": "^1.8.0"
+  },
+  "devDependencies": {
+    "coffee-script": "^1.10.0",
+    "supervisor": "^0.6.0"
+  }
+}
