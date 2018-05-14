@@ -1,13 +1,10 @@
 Author: Thomas Crowell
 Date: April 7, 2017
 
-Please don't hesitate to ask for a live demo!
-
-The three most important files for this project are:
+The two most important files for this project are:
 
 RLVizServer.js, which handles server setup, and post request from client
 index.html, in the Public folder. This file contains all the code for creating the visualizations (inline javascript - d3)
-CSCI6404FinalReport - RLViz.pdf, which is my final report and outlines the application as a whole.
 
 Instructions for running:
 
